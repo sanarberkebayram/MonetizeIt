@@ -1,0 +1,114 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: example
+      POSTGRES_DB: monetizeit_db
+    ports: ["5432:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+  management-api:
+    build: ./management-api
+    depends_on: [postgres, redis]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:example@postgres:5432/monetizeit_db
+      REDIS_URL: redis://redis:6379/0
+      STRIPE_SECRET_KEY: sk_test_YOUR_STRIPE_SECRET_KEY # REPLACE WITH YOUR ACTUAL KEY
+      STRIPE_WEBHOOK_SECRET: whsec_YOUR_STRIPE_WEBHOOK_SECRET # REPLACE WITH YOUR ACTUAL KEY
+      PLATFORM_ACCOUNT_ID: acct_YOUR_PLATFORM_ACCOUNT_ID # REPLACE WITH YOUR ACTUAL PLATFORM ACCOUNT ID
+      SENDGRID_API_KEY: YOUR_SENDGRID_API_KEY # REPLACE WITH YOUR ACTUAL SENDGRID API KEY
+    ports: ["8000:8000"]
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://localhost:12201"
+        tag: "management-api"
+
+  gateway:
+    build: ./gateway
+    depends_on: [management-api, redis]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MANAGEMENT_API_URL: http://management-api:8000
+    ports: ["8001:8001"]
+    volumes:
+      - ./gateway:/app
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://localhost:12201"
+        tag: "gateway"
+
+  billing-worker:
+    build: ./billing-worker
+    depends_on: [redis, postgres] # Depends on redis for streams, postgres for future aggregation
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://postgres:example@postgres:5432/monetizeit_db
+      STRIPE_SECRET_KEY: sk_test_YOUR_STRIPE_SECRET_KEY # REPLACE WITH YOUR ACTUAL KEY
+    ports: ["8002:8002"] # Expose port for Prometheus metrics
+    volumes:
+      - ./billing-worker:/app
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://localhost:12201"
+        tag: "billing-worker"
+
+  prometheus:
+    image: prom/prometheus:v2.47.1
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command: --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - management-api
+      - gateway
+      - billing-worker
+
+  grafana:
+    image: grafana/grafana:10.1.5
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  elasticsearch:
+    image: elasticsearch:8.11.3
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false # For local development, disable security
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+
+  logstash:
+    image: logstash:8.11.3
+    command: logstash -f /etc/logstash/conf.d/logstash.conf
+    volumes:
+      - ./logstash/logstash.conf:/etc/logstash/conf.d/logstash.conf
+    ports:
+      - "5044:5044" # Beats input
+      - "12201:12201/udp" # GELF input
+    depends_on:
+      - elasticsearch
+
+  
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+  elasticsearch_data:

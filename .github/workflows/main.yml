@@ -1,0 +1,55 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies for management-api
+      run: pip install -r management-api/requirements.txt
+
+    - name: Install dependencies for gateway
+      run: pip install -r gateway/requirements.txt
+
+    - name: Install dependencies for billing-worker
+      run: pip install -r billing-worker/requirements.txt
+
+    - name: Run linters (Flake8)
+      run: |
+        pip install flake8
+        flake8 management-api gateway billing-worker
+
+    - name: Run tests (Pytest)
+      run: |
+        pip install pytest
+        # pytest # You'll need to create test files for this to pass
+
+    - name: Build Docker images
+      run: |
+        docker build -t monetizeit-management-api ./management-api
+        docker build -t monetizeit-gateway ./gateway
+        docker build -t monetizeit-billing-worker ./billing-worker
+
+    # - name: Push Docker images (requires Docker Hub login or GHCR setup)
+    #   if: github.ref == 'refs/heads/main'
+    #   run: |
+    #     echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+    #     docker push monetizeit-management-api
+    #     docker push monetizeit-gateway
+    #     docker push monetizeit-billing-worker
