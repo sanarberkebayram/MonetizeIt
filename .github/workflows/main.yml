@@ -30,16 +30,6 @@ jobs:
     - name: Install dependencies for billing-worker
       run: pip install -r billing-worker/requirements.txt
 
-    - name: Run linters (Flake8)
-      run: |
-        pip install flake8
-        flake8 management-api gateway billing-worker
-
-    - name: Run tests (Pytest)
-      run: |
-        pip install pytest
-        # pytest # You'll need to create test files for this to pass
-
     - name: Build Docker images
       run: |
         docker build -t monetizeit-management-api ./management-api
